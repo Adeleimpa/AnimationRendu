@@ -31,10 +31,11 @@
 
 
 
-
+// points blancs
 std::vector< Vec3 > positions;
 std::vector< Vec3 > normals;
 
+// points rouges
 std::vector< Vec3 > positions2;
 std::vector< Vec3 > normals2;
 
@@ -164,6 +165,7 @@ bool save( const std::string & filename , std::vector< Vec3 > & vertices , std::
     myfile.close();
     return true;
 }
+
 
 
 
@@ -330,6 +332,103 @@ void reshape(int w, int h) {
     camera.resize (w, h);
 }
 
+float Gaussian(float rad, float dist){
+	float dist_squared = dist * dist;
+	float rad_squared = rad * rad;
+	return exp(-dist_squared/rad_squared);
+}
+
+float Wendland(float rad, float dist){
+	float a = pow(1 - (dist/rad),4);
+	float b = 1 + 4 * (dist/rad);
+	return a*b;
+}
+
+float Singular(float rad, float dist){
+	return pow(rad/dist, 2);
+}
+
+
+Vec3 project(Vec3 const &inputPoint, Vec3 const &centroid, Vec3 const &c_normal){
+	float dot_prod = Vec3::dot(inputPoint - centroid, c_normal);
+	Vec3 res = inputPoint - (dot_prod * c_normal);
+    return res;
+}
+
+// X' = HPSS(X)
+// X input point, X' output point
+void HPSS(Vec3 inputPoint, Vec3 &outputPoint, Vec3 &outputNormal, std::vector<Vec3> const &positions, 
+	std::vector<Vec3> const &normals, BasicANNkdTree const &kdtree, int kernel_type, float radius,
+	unsigned int nbIterations = 10, unsigned int k = 20){
+
+
+	// find the k nearest neighbors of inputPoint
+	ANNidxArray id_nearest_neighbors = new ANNidx[ k ];
+    ANNdistArray square_distances_to_neighbors = new ANNdist[ k ];
+
+    // iteratations
+    for (unsigned int i = 0; i < nbIterations; i++){
+    	kdtree.knearest(inputPoint, k , id_nearest_neighbors , square_distances_to_neighbors );
+
+		// compute centroid point and its normal
+		Vec3 avg_neighbor_p = Vec3(0.,0.,0.);
+		Vec3 avg_neighbor_n = Vec3(0.,0.,0.);
+
+		float w; // weight
+		float rad; // radius
+		float dist = square_distances_to_neighbors[k-1];
+
+		float weight_sum = 0.0;
+
+		for (unsigned int i = 0; i < k; i++){
+
+			rad = sqrt(square_distances_to_neighbors[i]); // rayon entre le input point et son voisin i
+
+			switch(kernel_type){
+				case 0: w = Gaussian(rad, dist);
+				case 1: w = Wendland(rad, dist);
+				case 2: w = Singular(rad, dist);
+				default: w = 1.0;
+			}
+
+            weight_sum += w;
+
+		    avg_neighbor_p += w * positions[id_nearest_neighbors[i]];
+		    avg_neighbor_n += w * normals[id_nearest_neighbors[i]];
+		}
+		avg_neighbor_p /= (float) weight_sum;
+		avg_neighbor_n /= (float) weight_sum;
+
+		// compute output point by projecting the input point on its plane
+		outputPoint = project(inputPoint, avg_neighbor_p, avg_neighbor_n); // x' = project(x,c,n)
+		outputNormal = avg_neighbor_n;
+		outputNormal.normalize();
+
+		inputPoint = outputPoint;
+    }
+
+
+    delete [] id_nearest_neighbors;
+    delete [] square_distances_to_neighbors;
+	
+}
+
+// étapes TPs:
+// but: projeter tous les points rouges sur la surface de l'objet 
+// pr chaque pt X, X' = HPSS(X)
+// pr cela on recup ses k nn grace au fichier kdtree
+// calcul du plan:
+// avec k plus proches vois calculer le centroid (= la moyenne des positions) -> formule tableau
+// on ft la moyenne des normes -> formule tabelau
+// ca donne un plan
+// projeter X sur ce plan: add X to list outputPoints
+// x' = project(x,c,n)
+// pr le moment tous les wi = 1 (poids neutres)
+// ensuite ajouter les poids... (varient en fonction de la distance entre le point et le voisinage? centroid?)
+// résultat les pts vont se rajouter de la surface
+// ensuite on repete de manière itérative pr améliorer
+// iterations: voir formule du cours qui prend en compte kes weights
+
 
 
 int main (int argc, char ** argv) {
@@ -373,6 +472,13 @@ int main (int argc, char ** argv) {
 
         // PROJECT USING MLS (HPSS and APSS):
         // TODO
+        // But : projeter tous les points rouges sur la surface de l'objet 
+        for(unsigned int i = 0; i < positions2.size(); i++){
+        	HPSS(positions2[i], positions2[i], normals2[i], positions, normals, kdtree, 1, 1.0);
+        	// TODO changer radius, mettre rad = max(distNN)
+        	// TODO il doit y avoir une diff entre les kernel type avec les modeles dégradés (pointsets extreme)
+        	// TODO finir exercices
+        }
     }
 
 
