@@ -230,7 +230,7 @@ void draw () {
     glPointSize(2); // for example...
 
     glColor3f(0.8,0.8,1);
-    drawPointSet(positions , normals);
+    //drawPointSet(positions , normals);
 
     glColor3f(1,0.5,0.5);
     drawPointSet(positions2 , normals2);
@@ -332,20 +332,27 @@ void reshape(int w, int h) {
     camera.resize (w, h);
 }
 
-float Gaussian(float rad, float dist){
-	float dist_squared = dist * dist;
-	float rad_squared = rad * rad;
-	return exp(-dist_squared/rad_squared);
+float Gaussian(float r, float d){ // r = la largeur de bande (bandwidth) 
+	// Plus un voisin est proche, plus son poids est élevé.
+
+	float d_squared = d * d;
+	float r_squared = r * r;
+	return exp(-d_squared/r_squared);
 }
 
-float Wendland(float rad, float dist){
-	float a = pow(1 - (dist/rad),4);
-	float b = 1 + 4 * (dist/rad);
+float Wendland(float r, float d){
+	// attribue un poids en fonction de la distance radiale du voisin
+
+	float a = pow(1 - (d/r),4);
+	float b = 1 + 4 * (d/r);
 	return a*b;
 }
 
-float Singular(float rad, float dist){
-	return pow(rad/dist, 2);
+float Singular(float r, float d){
+	// attribue un poids inversement proportionnel à la distance radiale. 
+	// Plus la distance est grande, moins le poids est élevé.
+
+	return pow(r/d, 2);
 }
 
 
@@ -361,33 +368,40 @@ void HPSS(Vec3 inputPoint, Vec3 &outputPoint, Vec3 &outputNormal, std::vector<Ve
 	std::vector<Vec3> const &normals, BasicANNkdTree const &kdtree, int kernel_type, float radius,
 	unsigned int nbIterations = 10, unsigned int k = 20){
 
-
 	// find the k nearest neighbors of inputPoint
 	ANNidxArray id_nearest_neighbors = new ANNidx[ k ];
     ANNdistArray square_distances_to_neighbors = new ANNdist[ k ];
 
-    // iteratations
+    // A chaque itération, on cherche les plus proches voisins, et on définit des poids vis a vis d’eux
     for (unsigned int i = 0; i < nbIterations; i++){
     	kdtree.knearest(inputPoint, k , id_nearest_neighbors , square_distances_to_neighbors );
+
+    	// Calculate the median distance among neighbors
+	    std::vector<float> distances;
+	    for (unsigned int j = 0; j < k; j++) {
+	        distances.push_back(sqrt(square_distances_to_neighbors[j]));
+	    }
+	    std::sort(distances.begin(), distances.end());
+	    float median_distance = distances[k / 2];
 
 		// compute centroid point and its normal
 		Vec3 avg_neighbor_p = Vec3(0.,0.,0.);
 		Vec3 avg_neighbor_n = Vec3(0.,0.,0.);
 
 		float w; // weight
-		float rad; // radius
-		float dist = square_distances_to_neighbors[k-1];
+		float r = median_distance; // constant that adjusts itself
+		float d;
 
 		float weight_sum = 0.0;
 
 		for (unsigned int i = 0; i < k; i++){
 
-			rad = sqrt(square_distances_to_neighbors[i]); // rayon entre le input point et son voisin i
+			d = sqrt(square_distances_to_neighbors[i]); // distance euclidienne entre le input point et son voisin i
 
 			switch(kernel_type){
-				case 0: w = Gaussian(rad, dist);
-				case 1: w = Wendland(rad, dist);
-				case 2: w = Singular(rad, dist);
+				case 0: w = Gaussian(r, d);
+				case 1: w = Wendland(r, d);
+				case 2: w = Singular(r, d);
 				default: w = 1.0;
 			}
 
@@ -396,6 +410,7 @@ void HPSS(Vec3 inputPoint, Vec3 &outputPoint, Vec3 &outputNormal, std::vector<Ve
 		    avg_neighbor_p += w * positions[id_nearest_neighbors[i]];
 		    avg_neighbor_n += w * normals[id_nearest_neighbors[i]];
 		}
+		// On trouve le plan qui passe au mieux par ces points (ACP pondérée)
 		avg_neighbor_p /= (float) weight_sum;
 		avg_neighbor_n /= (float) weight_sum;
 
@@ -403,6 +418,8 @@ void HPSS(Vec3 inputPoint, Vec3 &outputPoint, Vec3 &outputNormal, std::vector<Ve
 		outputPoint = project(inputPoint, avg_neighbor_p, avg_neighbor_n); // x' = project(x,c,n)
 		outputNormal = avg_neighbor_n;
 		outputNormal.normalize();
+
+		//outputNormal *= 0.2; // add noise
 
 		inputPoint = outputPoint;
     }
@@ -453,14 +470,18 @@ int main (int argc, char ** argv) {
     {
         // Load a first pointset, and build a kd-tree:
         loadPN("pointsets/igea.pn" , positions , normals);
+        //loadPN("pointsets/dino_subsampled_extreme.pn" , positions , normals);
+
 
         BasicANNkdTree kdtree;
         kdtree.build(positions);
 
         // Create a second pointset that is artificial, and project it on pointset1 using MLS techniques:
-        positions2.resize( 20000 );
+        positions2.resize( 1000 );
         normals2.resize(positions2.size());
-        for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
+        
+        // nuage de points circulaire
+        /*for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
             positions2[pIt] = Vec3(
                         -0.6 + 1.2 * (double)(rand())/(double)(RAND_MAX),
                         -0.6 + 1.2 * (double)(rand())/(double)(RAND_MAX),
@@ -468,16 +489,24 @@ int main (int argc, char ** argv) {
                         );
             positions2[pIt].normalize();
             positions2[pIt] = 0.6 * positions2[pIt];
-        }
+        }*/
+
+        // nuage de point dans le cube
+        for (unsigned int pIt = 0; pIt < positions2.size(); ++pIt) {
+		    positions2[pIt] = Vec3(
+		        -2.0 + 4.0 * (double)(rand()) / (double)(RAND_MAX),  // X coordinate in [-2, 2]
+		        -2.0 + 4.0 * (double)(rand()) / (double)(RAND_MAX),  // Y coordinate in [-2, 2]
+		        -2.0 + 4.0 * (double)(rand()) / (double)(RAND_MAX)   // Z coordinate in [-2, 2]
+		    );
+		    // No need to normalize, as we want the points to be distributed within the cube boundaries.
+		}
 
         // PROJECT USING MLS (HPSS and APSS):
         // TODO
         // But : projeter tous les points rouges sur la surface de l'objet 
         for(unsigned int i = 0; i < positions2.size(); i++){
-        	HPSS(positions2[i], positions2[i], normals2[i], positions, normals, kdtree, 1, 1.0);
+        	HPSS(positions2[i], positions2[i], normals2[i], positions, normals, kdtree, 0, 1.0);
         	// TODO changer radius, mettre rad = max(distNN)
-        	// TODO il doit y avoir une diff entre les kernel type avec les modeles dégradés (pointsets extreme)
-        	// TODO finir exercices
         }
     }
 
