@@ -94,20 +94,11 @@ void displayVoxel(Vec3 center, double length, Vec3 min_corner, Vec3 max_corner, 
     }else if (color.compare("purple") == 0){
         glColor3f(0.5F, 0.0F, 0.5F);
     }
-    glBegin(GL_LINE_STRIP);
-    for(unsigned int i = 0 ; i < voxelCorners.size(); i++) {
-        glVertex3f( voxelCorners[i][0] , voxelCorners[i][1] , voxelCorners[i][2] );
-    }
-    glVertex3f(voxelCorners[0][0], voxelCorners[0][1], voxelCorners[0][2]);
-    glVertex3f(voxelCorners[3][0], voxelCorners[3][1], voxelCorners[3][2]);
-    glVertex3f(voxelCorners[4][0], voxelCorners[4][1], voxelCorners[4][2]);
-    glVertex3f(voxelCorners[7][0], voxelCorners[7][1], voxelCorners[7][2]);
-    glVertex3f(voxelCorners[6][0], voxelCorners[6][1], voxelCorners[6][2]);
-    glVertex3f(voxelCorners[1][0], voxelCorners[1][1], voxelCorners[1][2]);
+    glBegin(GL_POINTS);
     glVertex3f(voxelCorners[2][0], voxelCorners[2][1], voxelCorners[2][2]);
-    glVertex3f(voxelCorners[5][0], voxelCorners[5][1], voxelCorners[5][2]);
-
     glEnd();
+
+    positions2.push_back(Vec3(voxelCorners[2][0], voxelCorners[2][1], voxelCorners[2][2]));
 }
 
 // displays the volume of a sphere given its center, radius and resolution
@@ -116,17 +107,15 @@ void displayGrid(Vec3 center, float length, int resolution){
 	Vec3 min_corner(center[0]-(length/2), center[1]-(length/2), center[2]-(length/2));
     Vec3 max_corner(center[0]+(length/2), center[1]+(length/2), center[2]+(length/2));
 
-    displayVoxel(center, length, min_corner, max_corner, "yellow");
-
     double voxel_length;
     double sq_dim = max_corner[0] - min_corner[0];
     voxel_length = sq_dim/(double)resolution;
 
     Vec3 current_min_corner = min_corner;
     Vec3 current_max_corner;
-    for(int i = 0; i < resolution; i++){ // x-axis
-        for(int j = 0; j < resolution; j++){ // y-axis
-            for(int k = 0; k < resolution; k++){ // z-axis
+    for(int i = 0; i < resolution+1; i++){ // x-axis
+        for(int j = 0; j < resolution+1; j++){ // y-axis
+            for(int k = 0; k < resolution+1; k++){ // z-axis
                 // update current_min_corner and current_max_corner
                 current_min_corner[0] = min_corner[0] + i*voxel_length;
                 current_min_corner[1] = min_corner[1] + j*voxel_length;
@@ -320,10 +309,10 @@ void draw () {
     glColor3f(0.8,0.8,1);
     drawPointSet(positions , normals);
 
-    displayGrid(Vec3(0.0,0.0,0.0), 1.5, 2);
+    //displayGrid(Vec3(0.0,0.0,0.0), 1.5, 32);
 
-    //glColor3f(1,0.5,0.5);
-    //drawPointSet(positions2 , normals2);
+    glColor3f(1,0.5,0.5);
+    drawPointSet(positions2 , normals2);
 }
 
 
@@ -456,7 +445,7 @@ Vec3 project(Vec3 const &inputPoint, Vec3 const &centroid, Vec3 const &c_normal)
 // X input point, X' output point
 void HPSS(Vec3 inputPoint, Vec3 &outputPoint, Vec3 &outputNormal, std::vector<Vec3> const &positions, 
 	std::vector<Vec3> const &normals, BasicANNkdTree const &kdtree, int kernel_type, float radius,
-	unsigned int nbIterations = 10, unsigned int k = 20){
+	unsigned int nbIterations = 5, unsigned int k = 20){
 
 	// find the k nearest neighbors of inputPoint
 	ANNidxArray id_nearest_neighbors = new ANNidx[ k ];
@@ -520,6 +509,36 @@ void HPSS(Vec3 inputPoint, Vec3 &outputPoint, Vec3 &outputNormal, std::vector<Ve
 	
 }
 
+void dualContouring(BasicANNkdTree const &kdtree){
+
+	// fill positions2 using bouding grid
+	positions2.clear();
+	normals2.clear();
+	displayGrid(Vec3(0.0,0.0,0.0), 1.5, 32);
+	normals2.resize(positions2.size());
+
+	// copy input point positions
+	std::vector< Vec3 > positionsIn;
+	for (unsigned int i=0; i<positions2.size(); i++) positionsIn.push_back(positions2[i]); 
+
+	std::cout << "nr of positions in: " << positionsIn.size() << std::endl;
+
+	int counter = 0; // count points that are perfectly on the contouring of maillage
+
+	// call HPSS and compute project of each point
+	for(unsigned int i = 0; i < positions2.size(); i++){
+    	HPSS(positions2[i], positions2[i], normals2[i], positions, normals, kdtree, 0, 1.0);
+    	double implicitFunction = Vec3::dot((positionsIn[i] - positions2[i]),normals2[i]);
+    	// std::cout << "implicitFunction val : " << implicitFunction << std::endl; // values close from 0, which seems great
+    	if(implicitFunction==0){
+    		counter++;
+    	}
+    }
+
+    std::cout << "counter: " << counter << std::endl;
+
+}
+
 
 int main (int argc, char ** argv) {
     if (argc > 2) {
@@ -549,9 +568,14 @@ int main (int argc, char ** argv) {
         BasicANNkdTree kdtree;
         kdtree.build(positions);
 
+        // -------------------------------------TP2 ------------------------------------------------------
+        dualContouring(kdtree);
+        // --------------------------------------------------------------------------------------------
+
+		// -------------------------------------TP1 ------------------------------------------------------
         // Create a second pointset that is artificial, and project it on pointset1 using MLS techniques:
-        positions2.resize( 20000 );
-        normals2.resize(positions2.size());
+        //positions2.resize( 20000 );
+        //normals2.resize(positions2.size());
         
         // nuage de points circulaire
         /*for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
@@ -565,20 +589,21 @@ int main (int argc, char ** argv) {
         }*/
 
         // nuage de point dans le cube
-        for (unsigned int pIt = 0; pIt < positions2.size(); ++pIt) {
+        /*for (unsigned int pIt = 0; pIt < positions2.size(); ++pIt) {
 		    positions2[pIt] = Vec3(
 		        -0.6 + 1.2 * (double)(rand()) / (double)(RAND_MAX),  // X coordinate in [-2, 2]
 		        -0.6 + 1.2 * (double)(rand()) / (double)(RAND_MAX),  // Y coordinate in [-2, 2]
 		        -0.6 + 1.2 * (double)(rand()) / (double)(RAND_MAX)   // Z coordinate in [-2, 2]
 		    );
 		    // No need to normalize, as we want the points to be distributed within the cube boundaries.
-		}
+		}*/
 
         // PROJECT USING MLS (HPSS and APSS):
         // But : projeter tous les points rouges sur la surface de l'objet 
         /*for(unsigned int i = 0; i < positions2.size(); i++){
         	HPSS(positions2[i], positions2[i], normals2[i], positions, normals, kdtree, 0, 1.0);
         }*/
+        // --------------------------------------------------------------------------------------------
     }
 
 
