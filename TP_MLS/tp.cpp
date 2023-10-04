@@ -55,6 +55,94 @@ static int lastX=0, lastY=0, lastZoom=0;
 static bool fullScreen = false;
 
 
+// generate the eight corners of a box described by its extreme corners (max_corner and min_corner)
+std::vector<Vec3> generateCorners(Vec3 max_corner, Vec3 min_corner){
+    Vec3 TLF_corner(min_corner[0], max_corner[1], min_corner[2]); // Top Left Front
+    Vec3 TLB_corner(min_corner[0], max_corner[1], max_corner[2]); // Top Left Back
+    Vec3 TRF_corner(max_corner[0], max_corner[1], min_corner[2]); // Top Right Back
+    Vec3 DLB_corner(min_corner[0], min_corner[1], max_corner[2]); // Down Left Front
+    Vec3 DRF_corner(max_corner[0], min_corner[1], min_corner[2]); // Down Right Front
+    Vec3 DRB_corner(max_corner[0], min_corner[1], max_corner[2]); // Down Right Back
+
+    std::vector<Vec3> corners{max_corner, TRF_corner, TLF_corner, TLB_corner, DLB_corner, min_corner, DRF_corner, DRB_corner};
+    return corners;
+}
+
+// returns the center point of the bounding box described by max_corner and min_corner
+Vec3 getCenter(Vec3 max_corner, Vec3 min_corner){
+    double center_x = min_corner[0] + (max_corner[0] - min_corner[0])/2;
+    double center_y = min_corner[1] + (max_corner[1] - min_corner[1])/2;
+    double center_z = min_corner[2] + (max_corner[2] - min_corner[2])/2;
+    Vec3 center(center_x, center_y, center_z);
+    return center;
+}
+
+// displays a box giving its center point and size (+ color)
+void displayVoxel(Vec3 center, double length, Vec3 min_corner, Vec3 max_corner, std::string color){
+    // make voxel
+    std::vector<Vec3> voxelCorners = generateCorners(max_corner, min_corner);
+
+    // sketch voxel
+    if(color.compare("yellow") == 0){
+        glColor3f(0.8F, 1.0F, 0.0F);
+    }else if(color.compare("blue") == 0){
+        glColor3f(0.0F, 0.0F, 1.0F);
+    }else if(color.compare("red") == 0){
+        glColor3f(1.0F, 0.0F, 0.0F);
+    }else if(color.compare("green") == 0){
+        glColor3f(0.0F, 1.0F, 0.0F);
+    }else if (color.compare("purple") == 0){
+        glColor3f(0.5F, 0.0F, 0.5F);
+    }
+    glBegin(GL_LINE_STRIP);
+    for(unsigned int i = 0 ; i < voxelCorners.size(); i++) {
+        glVertex3f( voxelCorners[i][0] , voxelCorners[i][1] , voxelCorners[i][2] );
+    }
+    glVertex3f(voxelCorners[0][0], voxelCorners[0][1], voxelCorners[0][2]);
+    glVertex3f(voxelCorners[3][0], voxelCorners[3][1], voxelCorners[3][2]);
+    glVertex3f(voxelCorners[4][0], voxelCorners[4][1], voxelCorners[4][2]);
+    glVertex3f(voxelCorners[7][0], voxelCorners[7][1], voxelCorners[7][2]);
+    glVertex3f(voxelCorners[6][0], voxelCorners[6][1], voxelCorners[6][2]);
+    glVertex3f(voxelCorners[1][0], voxelCorners[1][1], voxelCorners[1][2]);
+    glVertex3f(voxelCorners[2][0], voxelCorners[2][1], voxelCorners[2][2]);
+    glVertex3f(voxelCorners[5][0], voxelCorners[5][1], voxelCorners[5][2]);
+
+    glEnd();
+}
+
+// displays the volume of a sphere given its center, radius and resolution
+void displayGrid(Vec3 center, float length, int resolution){
+
+	Vec3 min_corner(center[0]-(length/2), center[1]-(length/2), center[2]-(length/2));
+    Vec3 max_corner(center[0]+(length/2), center[1]+(length/2), center[2]+(length/2));
+
+    displayVoxel(center, length, min_corner, max_corner, "yellow");
+
+    double voxel_length;
+    double sq_dim = max_corner[0] - min_corner[0];
+    voxel_length = sq_dim/(double)resolution;
+
+    Vec3 current_min_corner = min_corner;
+    Vec3 current_max_corner;
+    for(int i = 0; i < resolution; i++){ // x-axis
+        for(int j = 0; j < resolution; j++){ // y-axis
+            for(int k = 0; k < resolution; k++){ // z-axis
+                // update current_min_corner and current_max_corner
+                current_min_corner[0] = min_corner[0] + i*voxel_length;
+                current_min_corner[1] = min_corner[1] + j*voxel_length;
+                current_min_corner[2] = min_corner[2] + k*voxel_length;
+
+                current_max_corner = current_min_corner + Vec3(voxel_length, voxel_length, voxel_length);
+
+                // generate the corners of the current voxel
+                std::vector<Vec3> corners = generateCorners(current_max_corner, current_min_corner);
+
+                Vec3 voxel_center = getCenter(current_max_corner, current_min_corner);
+                displayVoxel(voxel_center, voxel_length, current_min_corner, current_max_corner, "blue");
+            }
+        }
+    }
+}
 
 
 // ------------------------------------------------------------------------------------------------------------
@@ -230,10 +318,12 @@ void draw () {
     glPointSize(2); // for example...
 
     glColor3f(0.8,0.8,1);
-    //drawPointSet(positions , normals);
+    drawPointSet(positions , normals);
 
-    glColor3f(1,0.5,0.5);
-    drawPointSet(positions2 , normals2);
+    displayGrid(Vec3(0.0,0.0,0.0), 1.5, 2);
+
+    //glColor3f(1,0.5,0.5);
+    //drawPointSet(positions2 , normals2);
 }
 
 
@@ -430,23 +520,6 @@ void HPSS(Vec3 inputPoint, Vec3 &outputPoint, Vec3 &outputNormal, std::vector<Ve
 	
 }
 
-// étapes TPs:
-// but: projeter tous les points rouges sur la surface de l'objet 
-// pr chaque pt X, X' = HPSS(X)
-// pr cela on recup ses k nn grace au fichier kdtree
-// calcul du plan:
-// avec k plus proches vois calculer le centroid (= la moyenne des positions) -> formule tableau
-// on ft la moyenne des normes -> formule tabelau
-// ca donne un plan
-// projeter X sur ce plan: add X to list outputPoints
-// x' = project(x,c,n)
-// pr le moment tous les wi = 1 (poids neutres)
-// ensuite ajouter les poids... (varient en fonction de la distance entre le point et le voisinage? centroid?)
-// résultat les pts vont se rajouter de la surface
-// ensuite on repete de manière itérative pr améliorer
-// iterations: voir formule du cours qui prend en compte kes weights
-
-
 
 int main (int argc, char ** argv) {
     if (argc > 2) {
@@ -477,7 +550,7 @@ int main (int argc, char ** argv) {
         kdtree.build(positions);
 
         // Create a second pointset that is artificial, and project it on pointset1 using MLS techniques:
-        positions2.resize( 1000 );
+        positions2.resize( 20000 );
         normals2.resize(positions2.size());
         
         // nuage de points circulaire
@@ -494,20 +567,18 @@ int main (int argc, char ** argv) {
         // nuage de point dans le cube
         for (unsigned int pIt = 0; pIt < positions2.size(); ++pIt) {
 		    positions2[pIt] = Vec3(
-		        -2.0 + 4.0 * (double)(rand()) / (double)(RAND_MAX),  // X coordinate in [-2, 2]
-		        -2.0 + 4.0 * (double)(rand()) / (double)(RAND_MAX),  // Y coordinate in [-2, 2]
-		        -2.0 + 4.0 * (double)(rand()) / (double)(RAND_MAX)   // Z coordinate in [-2, 2]
+		        -0.6 + 1.2 * (double)(rand()) / (double)(RAND_MAX),  // X coordinate in [-2, 2]
+		        -0.6 + 1.2 * (double)(rand()) / (double)(RAND_MAX),  // Y coordinate in [-2, 2]
+		        -0.6 + 1.2 * (double)(rand()) / (double)(RAND_MAX)   // Z coordinate in [-2, 2]
 		    );
 		    // No need to normalize, as we want the points to be distributed within the cube boundaries.
 		}
 
         // PROJECT USING MLS (HPSS and APSS):
-        // TODO
         // But : projeter tous les points rouges sur la surface de l'objet 
-        for(unsigned int i = 0; i < positions2.size(); i++){
+        /*for(unsigned int i = 0; i < positions2.size(); i++){
         	HPSS(positions2[i], positions2[i], normals2[i], positions, normals, kdtree, 0, 1.0);
-        	// TODO changer radius, mettre rad = max(distNN)
-        }
+        }*/
     }
 
 
