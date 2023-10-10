@@ -61,28 +61,77 @@ static bool fullScreen = false;
 
 
 
+Mat3 multiplyTwoMat(std::vector<Vec3> sourcePositions, std::vector<Vec3> targetPositions) {
+    Mat3 result(0.0,0.0,0.0, 0.0,0.0,0.0, 0.0,0.0,0.0);
+
+    if (sourcePositions.size() != targetPositions.size()) {
+        std::cerr << "Error: Input vectors have sizes that don't match." << std::endl;
+        return result;
+    }
+
+    for (unsigned int i = 0; i < sourcePositions.size(); i++) {
+        result(0,0) += sourcePositions[i][0] * targetPositions[i][0];
+        result(0,1) += sourcePositions[i][0] * targetPositions[i][1];
+        result(0,2) += sourcePositions[i][0] * targetPositions[i][2];
+
+        result(1,0) += sourcePositions[i][1] * targetPositions[i][0];
+        result(1,1) += sourcePositions[i][1] * targetPositions[i][1];
+        result(1,2) += sourcePositions[i][1] * targetPositions[i][2];
+
+        result(2,0) += sourcePositions[i][2] * targetPositions[i][0];
+        result(2,1) += sourcePositions[i][2] * targetPositions[i][1];
+        result(2,2) += sourcePositions[i][2] * targetPositions[i][2];
+    }
+
+    return result;
+}
+
+
+Vec3 computeCentroid(std::vector<Vec3> pts) {
+    Vec3 centroid(0.0,0.0,0.0);
+    for (unsigned int i = 0; i < pts.size(); i++) {
+        centroid += pts[i];
+    }
+    centroid /= pts.size();
+    return centroid;
+}
 
 
 // ------------------------------------
 // ICP
 // ------------------------------------
+void ICP(std::vector<Vec3> &sourcePositions, std::vector<Vec3> &normalsSP,
+         std::vector<Vec3> &targetPositions, std::vector<Vec3> &normalsTP,
+         BasicANNkdTree &qsKdTree, Mat3 &rotation, Vec3 &translation,
+         unsigned int nIterations) {
 
+    for (unsigned int it = 0; it < nIterations; it++) {
+        Vec3 sourceCentroid = computeCentroid(sourcePositions);
+        Vec3 targetCentroid = computeCentroid(targetPositions);
 
-void ICP(std::vector<Vec3> const & ps , std::vector<Vec3> const & nps ,
-         std::vector<Vec3> const & qs , std::vector<Vec3> const & nqs ,
-         BasicANNkdTree const & qsKdTree , Mat3 & rotation , Vec3 & translation , unsigned int nIterations) {
-    // align ps on qs : qs = rotation * ps + translation
+        std::vector<Vec3> sourceMatrix, targetMatrix;
+        Mat3 M;
 
-    for(unsigned int it = 0 ; it < nIterations ; ++it) {
-        // TODO
+        // Find nearest source points using kd-tree 
+        for (unsigned int j = 0; j < sourcePositions.size(); j++) {
+            std::vector<Vec3> nearestSP;
+            nearestSP.resize(sourcePositions.size());
+            nearestSP[j] = sourcePositions[qsKdTree.nearest(sourcePositions[j])];
 
-        std::cout << "\tICP , iteration " << it << " done" << std::endl;
+            sourceMatrix.push_back(sourcePositions[j] - sourceCentroid);
+            targetMatrix.push_back(nearestSP[j] - targetCentroid);
+        }
+
+        // Compute transformation matrix
+        M = multiplyTwoMat(sourceMatrix, targetMatrix);
+        M.setRotation();
+
+        // Apply transformation to source positions
+        for (unsigned int j = 0; j < sourcePositions.size(); j++) {
+            sourcePositions[j] = targetCentroid + M * (sourcePositions[j] - sourceCentroid);
+        }
     }
 }
-
-
-
-
 
 
 
@@ -434,7 +483,6 @@ void reshape(int w, int h) {
 }
 
 
-
 int main (int argc, char ** argv) {
     if (argc > 2) {
         exit (EXIT_FAILURE);
@@ -457,11 +505,11 @@ int main (int argc, char ** argv) {
     // ICP :
     {
         // Load a first pointset, and build a kd-tree:
-        loadPN("pointsets/face.pn" , positions , normals);
+        loadPN("pointsets/dino.pn" , positions , normals);
         kdtree.build(positions);
 
         // Load a second pointset :
-        loadPN("pointsets/face.pn" , positions2 , normals2);
+        loadPN("pointsets/dino2.pn" , positions2 , normals2);
 
         // Transform it slightly :
         srand(time(NULL));
@@ -477,6 +525,9 @@ int main (int argc, char ** argv) {
         ICPtranslation = Vec3(0,0,0);
         positions3 = positions2;
         normals3 = normals2;
+
+        // click i to start ICP process
+    
     }
 
 

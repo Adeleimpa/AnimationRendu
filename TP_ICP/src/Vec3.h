@@ -442,9 +442,6 @@ public:
 
 
 
-
-
-
     // ---------- Projections onto Rotations ----------- //
 
 
