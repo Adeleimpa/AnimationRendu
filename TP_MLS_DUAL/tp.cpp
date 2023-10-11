@@ -54,84 +54,105 @@ static bool mouseZoomPressed = false;
 static int lastX=0, lastY=0, lastZoom=0;
 static bool fullScreen = false;
 
+struct Edge{
+    public: 
+        int index_top; // index in grid points
+        int index_bottom; // index in grid points
+};
 
-// generate the eight corners of a box described by its extreme corners (max_corner and min_corner)
-std::vector<Vec3> generateCorners(Vec3 max_corner, Vec3 min_corner){
-    Vec3 TLF_corner(min_corner[0], max_corner[1], min_corner[2]); // Top Left Front
-    Vec3 TLB_corner(min_corner[0], max_corner[1], max_corner[2]); // Top Left Back
-    Vec3 TRF_corner(max_corner[0], max_corner[1], min_corner[2]); // Top Right Back
-    Vec3 DLB_corner(min_corner[0], min_corner[1], max_corner[2]); // Down Left Front
-    Vec3 DRF_corner(max_corner[0], min_corner[1], min_corner[2]); // Down Right Front
-    Vec3 DRB_corner(max_corner[0], min_corner[1], max_corner[2]); // Down Right Back
 
-    std::vector<Vec3> corners{max_corner, TRF_corner, TLF_corner, TLB_corner, DLB_corner, min_corner, DRF_corner, DRB_corner};
-    return corners;
-}
+struct Grid{
+    public: 
+        std::vector<Vec3> points;
+        std::vector<Vec3> normals;
+        std::vector<Edge> edges;
+        Vec3 min_corner;
+        Vec3 max_corner;
+        std::vector<double> scalars;
+        std::vector<bool> isNegative;
+        int resolution;
+        double voxel_length;
 
-// returns the center point of the bounding box described by max_corner and min_corner
-Vec3 getCenter(Vec3 max_corner, Vec3 min_corner){
-    double center_x = min_corner[0] + (max_corner[0] - min_corner[0])/2;
-    double center_y = min_corner[1] + (max_corner[1] - min_corner[1])/2;
-    double center_z = min_corner[2] + (max_corner[2] - min_corner[2])/2;
-    Vec3 center(center_x, center_y, center_z);
-    return center;
-}
 
-// displays a voxel giving its center point and size (+ color)
-void displayVoxel(Vec3 center, double length, Vec3 min_corner, Vec3 max_corner, std::string color){
-    // make voxel
-    std::vector<Vec3> voxelCorners = generateCorners(max_corner, min_corner);
+    // generate the eight corners of a box described by its extreme corners (max_corner and min_corner)
+    /*std::vector<Vec3> generateCorners(Vec3 max_corner, Vec3 min_corner){
+        Vec3 TLF_corner(min_corner[0], max_corner[1], min_corner[2]); // Top Left Front
+        Vec3 TLB_corner(min_corner[0], max_corner[1], max_corner[2]); // Top Left Back
+        Vec3 TRF_corner(max_corner[0], max_corner[1], min_corner[2]); // Top Right Back
+        Vec3 DLB_corner(min_corner[0], min_corner[1], max_corner[2]); // Down Left Front
+        Vec3 DRF_corner(max_corner[0], min_corner[1], min_corner[2]); // Down Right Front
+        Vec3 DRB_corner(max_corner[0], min_corner[1], max_corner[2]); // Down Right Back
 
-    // sketch voxel
-    if(color.compare("yellow") == 0){
-        glColor3f(0.8F, 1.0F, 0.0F);
-    }else if(color.compare("blue") == 0){
-        glColor3f(0.0F, 0.0F, 1.0F);
-    }else if(color.compare("red") == 0){
-        glColor3f(1.0F, 0.0F, 0.0F);
-    }else if(color.compare("green") == 0){
-        glColor3f(0.0F, 1.0F, 0.0F);
-    }else if (color.compare("purple") == 0){
-        glColor3f(0.5F, 0.0F, 0.5F);
+        std::vector<Vec3> corners{max_corner, TRF_corner, TLF_corner, TLB_corner, DLB_corner, min_corner, DRF_corner, DRB_corner};
+        return corners;
+    }*/
+
+    // returns the center point of the bounding box described by max_corner and min_corner
+    Vec3 getCenter(Vec3 max_corner, Vec3 min_corner){
+        double center_x = min_corner[0] + (max_corner[0] - min_corner[0])/2;
+        double center_y = min_corner[1] + (max_corner[1] - min_corner[1])/2;
+        double center_z = min_corner[2] + (max_corner[2] - min_corner[2])/2;
+        Vec3 center(center_x, center_y, center_z);
+        return center;
     }
-    glBegin(GL_POINTS);
-    glVertex3f(voxelCorners[2][0], voxelCorners[2][1], voxelCorners[2][2]);
-    glEnd();
 
-    positions2.push_back(Vec3(voxelCorners[2][0], voxelCorners[2][1], voxelCorners[2][2]));
-}
+    // displays a voxel giving its center point and size (+ color)
+    /*void displayVoxel(Vec3 center, double length, Vec3 min_corner, Vec3 max_corner, std::string color){
+        // make voxel
+        std::vector<Vec3> voxelCorners = generateCorners(max_corner, min_corner);
+
+        // sketch voxel
+        if(color.compare("yellow") == 0){
+            glColor3f(0.8F, 1.0F, 0.0F);
+        }else if(color.compare("blue") == 0){
+            glColor3f(0.0F, 0.0F, 1.0F);
+        }else if(color.compare("red") == 0){
+            glColor3f(1.0F, 0.0F, 0.0F);
+        }else if(color.compare("green") == 0){
+            glColor3f(0.0F, 1.0F, 0.0F);
+        }else if (color.compare("purple") == 0){
+            glColor3f(0.5F, 0.0F, 0.5F);
+        }
+        glBegin(GL_POINTS);
+        glVertex3f(voxelCorners[2][0], voxelCorners[2][1], voxelCorners[2][2]);
+        glEnd();
+
+        points.push_back(Vec3(voxelCorners[2][0], voxelCorners[2][1], voxelCorners[2][2]));
+    }*/
 
 
-void displayGrid(Vec3 center, float length, int resolution){
+    void buildGrid(Vec3 center, float length, int reso){
+        resolution = reso;
 
-	Vec3 min_corner(center[0]-(length/2), center[1]-(length/2), center[2]-(length/2));
-    Vec3 max_corner(center[0]+(length/2), center[1]+(length/2), center[2]+(length/2));
+    	min_corner = Vec3(center[0]-(length/2), center[1]-(length/2), center[2]-(length/2));
+        max_corner = Vec3(center[0]+(length/2), center[1]+(length/2), center[2]+(length/2));
 
-    double voxel_length;
-    double sq_dim = max_corner[0] - min_corner[0];
-    voxel_length = sq_dim/(double)resolution;
+        double sq_dim = max_corner[0] - min_corner[0];
+        voxel_length = sq_dim/(double)resolution;
 
-    Vec3 current_min_corner = min_corner;
-    Vec3 current_max_corner;
-    for(int i = 0; i < resolution+1; i++){ // x-axis
-        for(int j = 0; j < resolution+1; j++){ // y-axis
-            for(int k = 0; k < resolution+1; k++){ // z-axis
-                // update current_min_corner and current_max_corner
-                current_min_corner[0] = min_corner[0] + i*voxel_length;
-                current_min_corner[1] = min_corner[1] + j*voxel_length;
-                current_min_corner[2] = min_corner[2] + k*voxel_length;
+        Vec3 current_min_corner = min_corner;
+        Vec3 current_max_corner;
+        for(int i = 0; i < resolution+1; i++){ // x-axis
+            for(int j = 0; j < resolution+1; j++){ // y-axis
+                for(int k = 0; k < resolution+1; k++){ // z-axis
+                    // update current_min_corner and current_max_corner
+                    current_min_corner[0] = min_corner[0] + i*voxel_length;
+                    current_min_corner[1] = min_corner[1] + j*voxel_length;
+                    current_min_corner[2] = min_corner[2] + k*voxel_length;
 
-                current_max_corner = current_min_corner + Vec3(voxel_length, voxel_length, voxel_length);
+                    current_max_corner = current_min_corner + Vec3(voxel_length, voxel_length, voxel_length);
 
-                // generate the corners of the current voxel
-                std::vector<Vec3> corners = generateCorners(current_max_corner, current_min_corner);
-
-                Vec3 voxel_center = getCenter(current_max_corner, current_min_corner);
-                displayVoxel(voxel_center, voxel_length, current_min_corner, current_max_corner, "blue");
+                    // add only Top Left Front corner
+                    Vec3 TLF_corner(current_min_corner[0], current_max_corner[1], current_min_corner[2]);
+                    glBegin(GL_POINTS); // sketch point
+                        glVertex3f(TLF_corner[0], TLF_corner[1], TLF_corner[2]);
+                    glEnd();
+                    points.push_back(TLF_corner);
+                }
             }
         }
     }
-}
+};
 
 
 // ------------------------------------------------------------------------------------------------------------
@@ -511,25 +532,30 @@ void HPSS(Vec3 inputPoint, Vec3 &outputPoint, Vec3 &outputNormal, std::vector<Ve
 
 void dualContouring(BasicANNkdTree const &kdtree){
 
-	// fill positions2 using bouding grid
-	positions2.clear();
-	normals2.clear();
-	displayGrid(Vec3(0.0,0.0,0.0), 1.5, 32);
-	normals2.resize(positions2.size());
+    positions2.clear();
+    normals2.clear();
 
-	// copy input point positions
-	std::vector< Vec3 > positionsIn;
-	for (unsigned int i=0; i<positions2.size(); i++) positionsIn.push_back(positions2[i]); 
+    Grid grid;
+	grid.buildGrid(Vec3(0.0,0.0,0.0), 1.5, 32);
+	grid.normals.resize(grid.points.size());
 
-    std::vector< double > scalars;
+	// make a copy of grid points
+	std::vector<Vec3> positionsIn;
+	for (unsigned int i=0; i<grid.points.size(); i++) positionsIn.push_back(grid.points[i]); 
+
 
 	// call HPSS and compute project of each point
-	for(unsigned int i = 0; i < positions2.size(); i++){
-    	HPSS(positions2[i], positions2[i], normals2[i], positions, normals, kdtree, 0, 1.0);
-    	double implicitFunction = Vec3::dot((positionsIn[i] - positions2[i]),normals2[i]); 
-    	// std::cout << "implicitFunction val : " << implicitFunction << std::endl; // values close from 0, which seems great
-        scalars.push_back(implicitFunction);
+	for(unsigned int i = 0; i < grid.points.size(); i++){
+    	HPSS(grid.points[i], grid.points[i], grid.normals[i], positions, normals, kdtree, 0, 1.0);
+    	double implicitFunction = Vec3::dot((positionsIn[i] - grid.points[i]),grid.normals[i]); 
+        grid.scalars.push_back(implicitFunction);
+        if(grid.scalars[i]<0){grid.isNegative.push_back(true);}
+
+        // to sketch it
+        positions2.push_back(grid.points[i]);
+        normals2.push_back(grid.normals[i]);
     }
+
 
     // TODO 
     // parcourir grille et checker si deux scalaires ont des signes opposés
