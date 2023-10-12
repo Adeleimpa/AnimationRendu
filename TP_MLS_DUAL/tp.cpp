@@ -29,31 +29,8 @@
 #include "src/Camera.h"
 #include "src/jmkdtree.h"
 
-
-
-// points blancs
-std::vector< Vec3 > positions;
-std::vector< Vec3 > normals;
-
-// points rouges
-std::vector< Vec3 > positions2;
-std::vector< Vec3 > normals2;
-
-//BasicANNkdTree kdtree;
-
-// -------------------------------------------
-// OpenGL/GLUT application code.
-// -------------------------------------------
-
-static GLint window;
-static unsigned int SCREENWIDTH = 640;
-static unsigned int SCREENHEIGHT = 480;
-static Camera camera;
-static bool mouseRotatePressed = false;
-static bool mouseMovePressed = false;
-static bool mouseZoomPressed = false;
-static int lastX=0, lastY=0, lastZoom=0;
-static bool fullScreen = false;
+std::vector<Vec3> mesh_points;
+std::vector<unsigned int> triangles_indices;
 
 struct Voxel {
     public:
@@ -63,10 +40,10 @@ struct Voxel {
 };
 
 
-
 struct Grid {
     public: 
         std::vector<std::vector<std::vector<Vec3>>> points;
+        std::vector<Vec3> points_1D;
         std::vector<Vec3> normals;
 
         Vec3 min_corner;
@@ -153,10 +130,12 @@ struct Grid {
     void buildGrid(Vec3 center, float length, int reso){
         resolution = reso;
 
+        std::cout << "grid resolution: " << resolution << std::endl;
+
         //intialize points vector
         points = std::vector<std::vector<std::vector<Vec3>>>(resolution+1, std::vector<std::vector<Vec3>>(resolution+1, std::vector<Vec3>(resolution+1)));
 
-    	min_corner = Vec3(center[0]-(length/2), center[1]-(length/2), center[2]-(length/2));
+        min_corner = Vec3(center[0]-(length/2), center[1]-(length/2), center[2]-(length/2));
         max_corner = Vec3(center[0]+(length/2), center[1]+(length/2), center[2]+(length/2));
 
         double sq_dim = max_corner[0] - min_corner[0];
@@ -177,15 +156,81 @@ struct Grid {
                     // ----------CREATE POINT----------
                     // add only Top Left Front corner
                     Vec3 TLF_corner(current_min_corner[0], current_max_corner[1], current_min_corner[2]);
-                    glBegin(GL_POINTS); // sketch point
-                        glVertex3f(TLF_corner[0], TLF_corner[1], TLF_corner[2]);
-                    glEnd();
                     points[i][j][k] = TLF_corner;
+                    points_1D.push_back(TLF_corner);
                 }
             }
         }
+        std::cout << "nr of points in grid: " << points_1D.size() << std::endl;
+    }
+
+    void getVoxelsAroundEdge(std::vector<Voxel> voxels, int index_p1, int index_p2, int triangle_counter){
+        bool p1 = false;
+        bool p2 = false;
+
+        std::vector<Voxel> fourVoxels;
+
+        for(int i = 0; i < voxels.size(); i++){
+            for(int j = 0; j < voxels[i].index_corners.size(); j++){
+
+                int index_corner = voxels[i].index_corners[j];
+
+                if(index_corner == index_p1){
+                    p1 = true;
+                }
+                if(index_corner == index_p2){
+                    p2 = true;
+                }
+
+                if(p1 and p2){ // voxel contains the edge
+                    fourVoxels.push_back(voxels[i]);
+                }
+            }
+        }
+        
+        // and add them to mesh
+        mesh_points.push_back(fourVoxels[0].centroid);
+        mesh_points.push_back(fourVoxels[1].centroid);
+        mesh_points.push_back(fourVoxels[2].centroid);
+        mesh_points.push_back(fourVoxels[3].centroid);
+
+        // en créant deux triangles
+        triangles_indices.push_back(triangle_counter);
+        triangles_indices.push_back(triangle_counter+1);
+        triangles_indices.push_back(triangle_counter+2);
+
+        triangles_indices.push_back(triangle_counter);
+        triangles_indices.push_back(triangle_counter+2);
+        triangles_indices.push_back(triangle_counter+3);
     }
 };
+
+
+
+
+// points blancs
+std::vector< Vec3 > positions;
+std::vector< Vec3 > normals;
+
+// points rouges
+std::vector< Vec3 > positions2;
+std::vector< Vec3 > normals2;
+
+Grid grid;
+
+// -------------------------------------------
+// OpenGL/GLUT application code.
+// -------------------------------------------
+
+static GLint window;
+static unsigned int SCREENWIDTH = 640;
+static unsigned int SCREENHEIGHT = 480;
+static Camera camera;
+static bool mouseRotatePressed = false;
+static bool mouseMovePressed = false;
+static bool mouseZoomPressed = false;
+static int lastX=0, lastY=0, lastZoom=0;
+static bool fullScreen = false;
 
 
 // ------------------------------------------------------------------------------------------------------------
@@ -413,6 +458,7 @@ void HPSS(Vec3 inputPoint, Vec3 &outputPoint, Vec3 &outputNormal, std::vector<Ve
         Vec3 avg_neighbor_p = Vec3(0.,0.,0.);
         Vec3 avg_neighbor_n = Vec3(0.,0.,0.);
 
+
         float w; // weight
         float r = median_distance; // constant that adjusts itself
         float d;
@@ -455,45 +501,55 @@ void HPSS(Vec3 inputPoint, Vec3 &outputPoint, Vec3 &outputNormal, std::vector<Ve
     
 }
 
-void dualContouring(BasicANNkdTree const &kdtree){
+// ----------------------------------------------------------------------------
+void dualContouring(){
 
-    Grid grid;
-    grid.buildGrid(Vec3(0.0,0.0,0.0), 1.5, 32);
+    BasicANNkdTree kdtree;
+    kdtree.build(positions);
+
+    // build grid
+    grid.buildGrid(Vec3(0.0,0.0,0.0), 1.5, 4);
 
     // make a copy of grid points
-    std::vector<Vec3> positionsIn, positionsInCopy;
+    std::vector<Vec3> positionsIn;
     for (unsigned int i=0; i<grid.points.size(); i++){
         for (unsigned int j=0; j<grid.points[i].size(); j++){
             for (unsigned int k=0; k<grid.points[i][j].size(); k++){
                 positionsIn.push_back(grid.points[i][j][k]);
-                positionsInCopy.push_back(grid.points[i][j][k]);
-                //std::cout << " Vec3 (" << grid.points[i][j][k][0] << ", " << grid.points[i][j][k][1] << ", " << grid.points[i][j][k][2] << ")" << std::endl;
+                std::cout << " Vec3 (" << grid.points[i][j][k][0] << ", " << grid.points[i][j][k][1] << ", " << grid.points[i][j][k][2] << ")" << std::endl;
             }
-            //std::cout << "\n" << std::endl;
+            std::cout << " ---------------------------- "  << std::endl;
         }
-        //std::cout << "\n" << std::endl;
+        std::cout << " ---------------------------- "  << std::endl;
     }
 
+    std::cout << "positionsIn size: " << positionsIn.size() << std::endl;
+
+    // ----------------------------------------------------------------------------
     // call HPSS and compute project of each point
-    grid.normals.resize(positionsIn.size());
+    grid.normals.resize(grid.points_1D.size());
     positions2.clear();
     normals2.clear();
 
     for(unsigned int i = 0; i < positionsIn.size(); i++){
         HPSS(positionsIn[i], positionsIn[i], grid.normals[i], positions, normals, kdtree, 0, 1.0);
-        double implicitFunction = Vec3::dot((positionsInCopy[i] - positionsIn[i]),grid.normals[i]); 
+        double implicitFunction = Vec3::dot((grid.points_1D[i] - positionsIn[i]),grid.normals[i]); 
         grid.scalars.push_back(implicitFunction);
         if(grid.scalars[i]<0){grid.isNegative.push_back(true);}
 
         // to sketch it
         positions2.push_back(positionsIn[i]);
-        normals2.push_back(positionsIn[i]);
+        normals2.push_back(grid.normals[i]);
     }
 
+    std::cout << "positions2 size: " << positions2.size() << std::endl;
+    std::cout << "normals2 size: " << normals2.size() << std::endl;
+    std::cout << "grid normals size: " << grid.normals.size() << std::endl;
+    std::cout << "scalars size: " << grid.scalars.size() << std::endl;
 
+    // ----------------------------------------------------------------------------
     // parcourir grille et checker si deux scalaires ont des signes opposés
-    // si oui, on rajoute un point au centre de la cellule
-    std::vector<Voxel> voxels; // only those that have a neg-pos pattern
+    std::vector<Voxel> voxels; // liste des voxels qui ont des corners aux scalaires de signes opposés
     int index_pos = 0;
     for (unsigned int i=0; i<grid.points.size(); i++){
         for (unsigned int j=0; j<grid.points[i].size(); j++){
@@ -501,9 +557,18 @@ void dualContouring(BasicANNkdTree const &kdtree){
 
                 bool negAndPos = grid.checkScalarsInVoxel(i, j, k, index_pos);
 
+                // si oui, on rajoute un point au centre de la cellule
                 if(negAndPos && i+1<=grid.resolution && j+1<=grid.resolution && k+1<=grid.resolution){
                     Voxel vox;
-                    // TODO vox.index_corners.push_back()
+                    vox.index_corners.push_back(index_pos); //TLF
+                    vox.index_corners.push_back(index_pos+1); //TLB
+                    vox.index_corners.push_back(index_pos + grid.resolution+1); //TRF
+                    vox.index_corners.push_back(index_pos + grid.resolution+1 +1); //MAX
+                    vox.index_corners.push_back(index_pos + (grid.resolution+1)*(grid.resolution+1)); //MIN
+                    vox.index_corners.push_back(index_pos + (grid.resolution+1)*(grid.resolution+1) +1); //DLB
+                    vox.index_corners.push_back(index_pos + (grid.resolution+1)*(grid.resolution+1) + (grid.resolution+1)); //DRF
+                    vox.index_corners.push_back(index_pos + (grid.resolution+1)*(grid.resolution+1) + (grid.resolution+1) +1); //DRB
+
                     vox.centroid = grid.getCenter(grid.points[i+1][j][k], grid.points[i][j+1][k+1]);
                     voxels.push_back(vox);
                 }
@@ -511,14 +576,34 @@ void dualContouring(BasicANNkdTree const &kdtree){
             }
         }
     }
-    //std::cout << voxels.size() << std::endl;
-
-
+    std::cout << "nr of voxels that have a + and a - : " << voxels.size() << std::endl;
     // ----------------------------------------------------------------------------
-    // TODO there is an error here, edges don't seem right
+
+
+    int triangle_counter = 0;
 
     // ensuite, on va parcourir toutes les arêtes de la grille (en x en y et en z)
+
     // arêtes en x
+    for(int i = 0; i < (grid.resolution+1) * (grid.resolution+1) * (grid.resolution+1) - (grid.resolution+1); i += ((grid.resolution+1)*(grid.resolution+1))){
+        for(int j = 0; j < i + (grid.resolution+1) * (grid.resolution+1); j += (grid.resolution+1)){
+            // on a une arête qui relie grid.points_1D[j] à grid.points_1D[j+(reso+1)]
+
+            // si les deux extremités de l'arête ont un signe différent 
+            if( (grid.scalars[j] < 0 and grid.scalars[j+(grid.resolution+1)] >= 0) or (grid.scalars[j+(grid.resolution+1)] < 0 and grid.scalars[j] >= 0) ){
+                // alors on relie les 4 centres qui entourent l'arete
+                grid.getVoxelsAroundEdge(voxels, j, j+(grid.resolution+1), triangle_counter);
+                triangle_counter += 4;
+
+                glBegin(GL_LINE_STRIP);
+                glVertex3f(grid.points_1D[j][0] , grid.points_1D[j][1] , grid.points_1D[j][2]);
+                glVertex3f(grid.points_1D[j+(grid.resolution+1)][0] , grid.points_1D[j+(grid.resolution+1)][1] , grid.points_1D[j+(grid.resolution+1)][2]);
+                glEnd();
+            }
+        }
+    }
+
+    // arêtes en y
     for (int i = 0; i < ((grid.resolution+1) * (grid.resolution+1)); i++){
         float s1 = grid.scalars[i];
         float s2 = grid.scalars[i + (grid.resolution+1) * (grid.resolution+1)];
@@ -526,68 +611,43 @@ void dualContouring(BasicANNkdTree const &kdtree){
 
         // si les deux extremités de l'arête ont un signe différent 
         if((s1 < 0 and s2 >= 0) or (s1 >= 0 and s2 < 0)){
-            // TODO
             // alors on relie les 4 centres qui entourent l'arete
-            // en créant deux triangles
-            // on oriente les normales des triangles vers le coté positif de l'arete
+            grid.getVoxelsAroundEdge(voxels, i, i + (grid.resolution+1) * (grid.resolution+1), triangle_counter);
+            triangle_counter += 4;
 
-            glColor3f(3.0F, 3.0F, 3.0F); // white
             glBegin(GL_LINE_STRIP);
-            glVertex3f(positionsIn[i][0] , positionsIn[i][1] , positionsIn[i][2]);
-            glVertex3f(positionsIn[i + (grid.resolution+1) * (grid.resolution+1)][0] , positionsIn[i + (grid.resolution+1) * (grid.resolution+1)][1] , positionsIn[i + (grid.resolution+1) * (grid.resolution+1)][2]);
+            glVertex3f(grid.points_1D[i][0] , grid.points_1D[i][1] , grid.points_1D[i][2]);
+            glVertex3f(grid.points_1D[i + (grid.resolution+1) * (grid.resolution+1)][0] , grid.points_1D[i + (grid.resolution+1) * (grid.resolution+1)][1] , grid.points_1D[i + (grid.resolution+1) * (grid.resolution+1)][2]);
             glEnd();
         }
 
         // si les deux extremités de l'arête ont un signe différent 
         if((s2 < 0 and s3 >= 0) or (s2 >= 0 and s3 < 0)){
-            // TODO
             // alors on relie les 4 centres qui entourent l'arete
-            // en créant deux triangles
-            // on oriente les normales des triangles vers le coté positif de l'arete
+            grid.getVoxelsAroundEdge(voxels, i + (grid.resolution+1) * (grid.resolution+1), 2* (i + (grid.resolution+1) * (grid.resolution+1)), triangle_counter);
+            triangle_counter += 4;
 
             glBegin(GL_LINE_STRIP);
-            glVertex3f(positionsIn[i + (grid.resolution+1) * (grid.resolution+1)][0] , positionsIn[i + (grid.resolution+1) * (grid.resolution+1)][1] , positionsIn[i + (grid.resolution+1) * (grid.resolution+1)][2]);
-            glVertex3f(positionsIn[2* (i + (grid.resolution+1) * (grid.resolution+1))][0] , positionsIn[2* (i + (grid.resolution+1) * (grid.resolution+1))][1] , positionsIn[2* (i + (grid.resolution+1) * (grid.resolution+1))][2]);
+            glVertex3f(grid.points_1D[i + (grid.resolution+1) * (grid.resolution+1)][0] , grid.points_1D[i + (grid.resolution+1) * (grid.resolution+1)][1] , grid.points_1D[i + (grid.resolution+1) * (grid.resolution+1)][2]);
+            glVertex3f(grid.points_1D[2* (i + (grid.resolution+1) * (grid.resolution+1))][0] , grid.points_1D[2* (i + (grid.resolution+1) * (grid.resolution+1))][1] , grid.points_1D[2* (i + (grid.resolution+1) * (grid.resolution+1))][2]);
             glEnd();
         }
     }
 
-    // arêtes en y
-    for(int i = 0; i < (grid.resolution+1) * (grid.resolution+1) * (grid.resolution+1) - (grid.resolution+1); i += ((grid.resolution+1)*(grid.resolution+1))){
-        for(int j = 0; j < i + (grid.resolution+1) * (grid.resolution+1); j += (grid.resolution+1)){
-            // on a une arête qui relie positionsIn[j] à positionsIn[j+(reso+1)]
-
-            // si les deux extremités de l'arête ont un signe différent 
-            if( (grid.scalars[j] < 0 and grid.scalars[j+(grid.resolution+1)] >= 0) or (grid.scalars[j+(grid.resolution+1)] < 0 and grid.scalars[j] >= 0) ){
-                // TODO
-                // alors on relie les 4 centres qui entourent l'arete
-                // en créant deux triangles
-                // on oriente les normales des triangles vers le coté positif de l'arete
-
-                glBegin(GL_LINE_STRIP);
-                glVertex3f(positionsIn[j][0] , positionsIn[j][1] , positionsIn[j][2]);
-                glVertex3f(positionsIn[j+(grid.resolution+1)][0] , positionsIn[j+(grid.resolution+1)][1] , positionsIn[j+(grid.resolution+1)][2]);
-                glEnd();
-            }
-        }
-    }
-
     // arêtes en z
-    for(int i = 0; i < positionsIn.size(); i += grid.resolution +1){
-
-        for(int j = 0; j < i + grid.resolution; j++){
-            // on a une arête qui relie positionsIn[j] à positionsIn[j+1]
+    for(int i = 0; i <= grid.points_1D.size() - (grid.resolution+1); i += (grid.resolution+1)){
+        for(int j = i; j < i + grid.resolution; j++){
+            // on a une arête qui relie grid.points_1D[j] à grid.points_1D[j+1]
 
             // si les deux extremités de l'arête ont un signe différent 
             if( (grid.scalars[j] < 0 and grid.scalars[j+1] >= 0) or (grid.scalars[j+1] < 0 and grid.scalars[j] >= 0) ){
-                // TODO
                 // alors on relie les 4 centres qui entourent l'arete
-                // en créant deux triangles
-                // on oriente les normales des triangles vers le coté positif de l'arete
+                grid.getVoxelsAroundEdge(voxels, j, j+1, triangle_counter);
+                triangle_counter += 4;
 
                 glBegin(GL_LINE_STRIP);
-                glVertex3f(positionsIn[j][0] , positionsIn[j][1] , positionsIn[j][2]);
-                glVertex3f(positionsIn[j+1][0] , positionsIn[j+1][1] , positionsIn[j+1][2]);
+                glVertex3f(grid.points_1D[j][0] , grid.points_1D[j][1] , grid.points_1D[j][2]);
+                glVertex3f(grid.points_1D[j+1][0] , grid.points_1D[j+1][1] , grid.points_1D[j+1][2]);
                 glEnd();
             }
         }
@@ -596,21 +656,27 @@ void dualContouring(BasicANNkdTree const &kdtree){
 
     // TODO
     // a la fin on aura un maillage voxelisé genre
-    // du coup on réapplique un HPPS aux sommets de ce maillage histoire de lisser notre résultat
+    // du coup on réapplique un HPSS aux sommets de ce maillage histoire de lisser notre résultat
     // on ft la meme chose pr différentes résolutions
 }
 
 void draw () {
     glPointSize(2); // for example...
 
-    glColor3f(0.8,0.8,1);
-    drawPointSet(positions , normals);
+    glColor3f(0.8,0.8,1); // white
+    //drawPointSet(positions , normals);
 
-    //displayGrid(Vec3(0.0,0.0,0.0), 1.5, 32);
-    //dualContouring(kdtree);
+    glColor3f(0,0,1.0); // blue
+    drawPointSet(grid.points_1D, grid.normals);
 
-    glColor3f(1,0.5,0.5);
+    glColor3f(0,1,0); // green
+    //dualContouring();
+
+    glColor3f(1,0.5,0.5); // red
     drawPointSet(positions2 , normals2);
+
+    glColor3f(0,1,0); // green
+    drawTriangleMesh(mesh_points, triangles_indices);
 }
 
 
@@ -738,11 +804,11 @@ int main (int argc, char ** argv) {
         //loadPN("pointsets/dino_subsampled_extreme.pn" , positions , normals);
 
 
-        BasicANNkdTree kdtree;
-        kdtree.build(positions);
+        //BasicANNkdTree kdtree;
+        //kdtree.build(positions);
 
         // -------------------------------------TP2 ------------------------------------------------------
-        dualContouring(kdtree);
+        dualContouring();
         // --------------------------------------------------------------------------------------------
 
 		// -------------------------------------TP1 ------------------------------------------------------

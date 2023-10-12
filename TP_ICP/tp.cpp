@@ -61,32 +61,6 @@ static bool fullScreen = false;
 
 
 
-Mat3 multiplyTwoMat(std::vector<Vec3> sourcePositions, std::vector<Vec3> targetPositions) {
-    Mat3 result(0.0,0.0,0.0, 0.0,0.0,0.0, 0.0,0.0,0.0);
-
-    if (sourcePositions.size() != targetPositions.size()) {
-        std::cerr << "Error: Input vectors have sizes that don't match." << std::endl;
-        return result;
-    }
-
-    for (unsigned int i = 0; i < sourcePositions.size(); i++) {
-        result(0,0) += sourcePositions[i][0] * targetPositions[i][0];
-        result(0,1) += sourcePositions[i][0] * targetPositions[i][1];
-        result(0,2) += sourcePositions[i][0] * targetPositions[i][2];
-
-        result(1,0) += sourcePositions[i][1] * targetPositions[i][0];
-        result(1,1) += sourcePositions[i][1] * targetPositions[i][1];
-        result(1,2) += sourcePositions[i][1] * targetPositions[i][2];
-
-        result(2,0) += sourcePositions[i][2] * targetPositions[i][0];
-        result(2,1) += sourcePositions[i][2] * targetPositions[i][1];
-        result(2,2) += sourcePositions[i][2] * targetPositions[i][2];
-    }
-
-    return result;
-}
-
-
 Vec3 computeCentroid(std::vector<Vec3> pts) {
     Vec3 centroid(0.0,0.0,0.0);
     for (unsigned int i = 0; i < pts.size(); i++) {
@@ -110,7 +84,7 @@ void ICP(std::vector<Vec3> &sourcePositions, std::vector<Vec3> &normalsSP,
         Vec3 targetCentroid = computeCentroid(targetPositions);
 
         std::vector<Vec3> sourceMatrix, targetMatrix;
-        Mat3 M;
+        Mat3 covarianceMatrix;
 
         // Find nearest source points using kd-tree 
         for (unsigned int j = 0; j < sourcePositions.size(); j++) {
@@ -122,13 +96,17 @@ void ICP(std::vector<Vec3> &sourcePositions, std::vector<Vec3> &normalsSP,
             targetMatrix.push_back(nearestSP[j] - targetCentroid);
         }
 
-        // Compute transformation matrix
-        M = multiplyTwoMat(sourceMatrix, targetMatrix);
-        M.setRotation();
+        // Compute covariance matrix croisée
+        for (unsigned int i = 0; i < sourcePositions.size(); i++) {
+            covarianceMatrix += Mat3::tensor(sourceMatrix[i], targetMatrix[i]);
+        }
+        // calculer la SVD + generer matrice rotation
+        rotation = covarianceMatrix;
+        rotation.setRotation(); 
 
-        // Apply transformation to source positions
+        // Alignement par SVD
         for (unsigned int j = 0; j < sourcePositions.size(); j++) {
-            sourcePositions[j] = targetCentroid + M * (sourcePositions[j] - sourceCentroid);
+            sourcePositions[j] = targetCentroid + rotation * (sourcePositions[j] - sourceCentroid);
         }
     }
 }
@@ -381,10 +359,10 @@ void draw () {
 void performICP( unsigned int nIterations ) {
     ICP(positions2 , normals2 , positions , normals , kdtree , ICProtation , ICPtranslation , nIterations );
 
-    for( unsigned int pIt = 0 ; pIt < positions3.size() ; ++pIt ) {
+    /*for( unsigned int pIt = 0 ; pIt < positions3.size() ; ++pIt ) {
         positions3[pIt] = ICProtation * positions2[pIt] + ICPtranslation;
         normals3[pIt] = ICProtation * normals2[pIt];
-    }
+    }*/
 }
 
 
@@ -415,7 +393,7 @@ void key (unsigned char keyPressed, int x, int y) {
         break;
 
     case 'i':
-        performICP(5);
+        performICP(10);
         break;
 
     case 'w':
