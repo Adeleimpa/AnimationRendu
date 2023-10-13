@@ -676,7 +676,7 @@ void draw () {
     drawPointSet(positions2 , normals2);
 
     glColor3f(0,1,0); // green
-    //drawTriangleMesh(mesh_points, triangles_indices);
+    drawTriangleMesh(mesh_points, triangles_indices);
 }
 
 
