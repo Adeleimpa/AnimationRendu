@@ -664,7 +664,7 @@ void draw () {
     glPointSize(2); // for example...
 
     glColor3f(0.8,0.8,1); // white
-    //drawPointSet(positions , normals);
+    drawPointSet(positions , normals);
 
     glColor3f(0,0,1.0); // blue
     drawPointSet(grid.points_1D, grid.normals);
@@ -676,7 +676,7 @@ void draw () {
     drawPointSet(positions2 , normals2);
 
     glColor3f(0,1,0); // green
-    drawTriangleMesh(mesh_points, triangles_indices);
+    //drawTriangleMesh(mesh_points, triangles_indices);
 }
 
 
