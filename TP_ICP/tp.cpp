@@ -83,17 +83,164 @@ void ICP(std::vector<Vec3> &sourcePositions, std::vector<Vec3> &normalsSP,
         Vec3 sourceCentroid = computeCentroid(sourcePositions);
         Vec3 targetCentroid = computeCentroid(targetPositions);
 
+        translation = targetCentroid - sourceCentroid;
+
         std::vector<Vec3> sourceMatrix, targetMatrix;
         Mat3 covarianceMatrix;
 
         // Find nearest source points using kd-tree 
+        std::vector<Vec3> nearestPos;
+        nearestPos.resize(sourcePositions.size());
+
         for (unsigned int j = 0; j < sourcePositions.size(); j++) {
-            std::vector<Vec3> nearestSP;
-            nearestSP.resize(sourcePositions.size());
-            nearestSP[j] = sourcePositions[qsKdTree.nearest(sourcePositions[j])];
+            nearestPos[j] = targetPositions[qsKdTree.nearest(sourcePositions[j])];
 
             sourceMatrix.push_back(sourcePositions[j] - sourceCentroid);
-            targetMatrix.push_back(nearestSP[j] - targetCentroid);
+            targetMatrix.push_back(nearestPos[j] - targetCentroid);
+        }
+
+        // Compute covariance matrix croisée
+        for (unsigned int i = 0; i < sourcePositions.size(); i++) {
+            covarianceMatrix += Mat3::tensor(sourceMatrix[i], targetMatrix[i]);
+        }
+        // calculer la SVD + generer matrice rotation
+        covarianceMatrix.setRotation();
+        rotation = covarianceMatrix;
+         
+
+        // Alignement par SVD
+        for (unsigned int j = 0; j < sourcePositions.size(); j++) {
+            sourcePositions[j] = targetCentroid + rotation * (sourcePositions[j] - sourceCentroid);
+        }
+    }
+}
+
+// ------------------------------------
+// methods for HPSS
+// ------------------------------------
+float Gaussian(float r, float d){ // r = la largeur de bande (bandwidth) 
+    // Plus un voisin est proche, plus son poids est élevé.
+
+    float d_squared = d * d;
+    float r_squared = r * r;
+    return exp(-d_squared/r_squared);
+}
+
+float Wendland(float r, float d){
+    // attribue un poids en fonction de la distance radiale du voisin
+
+    float a = pow(1 - (d/r),4);
+    float b = 1 + 4 * (d/r);
+    return a*b;
+}
+
+float Singular(float r, float d){
+    // attribue un poids inversement proportionnel à la distance radiale. 
+    // Plus la distance est grande, moins le poids est élevé.
+
+    return pow(r/d, 2);
+}
+
+Vec3 project(Vec3 const &inputPoint, Vec3 const &centroid, Vec3 const &c_normal){
+    float dot_prod = Vec3::dot(inputPoint - centroid, c_normal);
+    Vec3 res = inputPoint - (dot_prod * c_normal);
+    return res;
+}
+
+// ------------------------------------
+// X' = HPSS(X)
+// X input point, X' output point
+// ------------------------------------
+void HPSS(Vec3 inputPoint, Vec3 &outputPoint, Vec3 &outputNormal, std::vector<Vec3> const &positions, 
+    std::vector<Vec3> const &normals, BasicANNkdTree const &kdtree, int kernel_type, float radius,
+    unsigned int nbIterations = 10, unsigned int k = 20){
+
+    // find the k nearest neighbors of inputPoint
+    ANNidxArray id_nearest_neighbors = new ANNidx[ k ];
+    ANNdistArray square_distances_to_neighbors = new ANNdist[ k ];
+
+    // A chaque itération, on cherche les plus proches voisins, et on définit des poids vis a vis d’eux
+    for (unsigned int i = 0; i < nbIterations; i++){
+        kdtree.knearest(inputPoint, k , id_nearest_neighbors , square_distances_to_neighbors );
+
+        // Calculate the median distance among neighbors
+        std::vector<float> distances;
+        for (unsigned int j = 0; j < k; j++) {
+            distances.push_back(sqrt(square_distances_to_neighbors[j]));
+        }
+        std::sort(distances.begin(), distances.end());
+        float median_distance = distances[k / 2];
+
+        // compute centroid point and its normal
+        Vec3 avg_neighbor_p = Vec3(0.,0.,0.);
+        Vec3 avg_neighbor_n = Vec3(0.,0.,0.);
+
+
+        float w; // weight
+        float r = median_distance; // constant that adjusts itself
+        float d;
+
+        float weight_sum = 0.0;
+
+        for (unsigned int i = 0; i < k; i++){
+
+            d = sqrt(square_distances_to_neighbors[i]); // distance euclidienne entre le input point et son voisin i
+
+            switch(kernel_type){
+                case 0: w = Gaussian(r, d);
+                case 1: w = Wendland(r, d);
+                case 2: w = Singular(r, d);
+                default: w = 1.0;
+            }
+
+            weight_sum += w;
+
+            avg_neighbor_p += w * positions[id_nearest_neighbors[i]];
+            avg_neighbor_n += w * normals[id_nearest_neighbors[i]];
+        }
+        // On trouve le plan qui passe au mieux par ces points (ACP pondérée)
+        avg_neighbor_p /= (float) weight_sum;
+        avg_neighbor_n /= (float) weight_sum;
+
+        // compute output point by projecting the input point on its plane
+        outputPoint = project(inputPoint, avg_neighbor_p, avg_neighbor_n); // x' = project(x,c,n)
+        outputNormal = avg_neighbor_n;
+        outputNormal.normalize();
+
+        //outputNormal *= 0.2; // add noise
+
+        inputPoint = outputPoint;
+    }
+
+
+    delete [] id_nearest_neighbors;
+    delete [] square_distances_to_neighbors;
+    
+}
+
+// ------------------------------------
+// ICP & HPSS
+// ------------------------------------
+void ICP_HPSS(std::vector<Vec3> &sourcePositions, std::vector<Vec3> &normalsSP,
+         std::vector<Vec3> &targetPositions, std::vector<Vec3> &normalsTP,
+         BasicANNkdTree &qsKdTree, Mat3 &rotation, Vec3 &translation,
+         unsigned int nIterations) {
+
+    for (unsigned int it = 0; it < nIterations; it++) {
+        Vec3 sourceCentroid = computeCentroid(sourcePositions);
+        Vec3 targetCentroid = computeCentroid(targetPositions);
+
+        std::vector<Vec3> sourceMatrix, targetMatrix;
+        Mat3 covarianceMatrix;
+
+        // Find nearest source points using kd-tree 
+        std::vector<Vec3> nearestPos;
+        nearestPos.resize(sourcePositions.size());
+        for (unsigned int j = 0; j < sourcePositions.size(); j++) {
+            HPSS(sourcePositions[j], nearestPos[j], normalsSP[j], targetPositions, normalsTP, qsKdTree, 0, 1.0);
+
+            sourceMatrix.push_back(sourcePositions[j] - sourceCentroid);
+            targetMatrix.push_back(nearestPos[j] - targetCentroid);
         }
 
         // Compute covariance matrix croisée
@@ -110,8 +257,6 @@ void ICP(std::vector<Vec3> &sourcePositions, std::vector<Vec3> &normalsSP,
         }
     }
 }
-
-
 
 
 
@@ -358,6 +503,7 @@ void draw () {
 
 void performICP( unsigned int nIterations ) {
     ICP(positions2 , normals2 , positions , normals , kdtree , ICProtation , ICPtranslation , nIterations );
+    //ICP_HPSS(positions2 , normals2 , positions , normals , kdtree , ICProtation , ICPtranslation , nIterations );
 
     /*for( unsigned int pIt = 0 ; pIt < positions3.size() ; ++pIt ) {
         positions3[pIt] = ICProtation * positions2[pIt] + ICPtranslation;
@@ -485,13 +631,15 @@ int main (int argc, char ** argv) {
         // Load a first pointset, and build a kd-tree:
         loadPN("pointsets/dino.pn" , positions , normals);
         kdtree.build(positions);
+        positions2 = positions;
+        normals2 = normals;
 
         // Load a second pointset :
-        loadPN("pointsets/dino2.pn" , positions2 , normals2);
+        //loadPN("pointsets/dino.pn" , positions2 , normals2);
 
         // Transform it slightly :
         srand(time(NULL));
-        Mat3 rotation = Mat3::RandRotation(M_PI / 3); // PLAY WITH THIS PARAMETER !!!!!!
+        Mat3 rotation = Mat3::RandRotation(0); // PLAY WITH THIS PARAMETER !!!!!! // 0 ou M_PI / 3
         Vec3 translation = Vec3( -1.0 + 2.0 * ((double)(rand()) / (double)(RAND_MAX)),-1.0 + 2.0 * ((double)(rand()) / (double)(RAND_MAX)),-1.0 + 2.0 * ((double)(rand()) / (double)(RAND_MAX)) );
         for( unsigned int pIt = 0 ; pIt < positions2.size() ; ++pIt ) {
             positions2[pIt] = rotation * positions2[pIt] + translation;
